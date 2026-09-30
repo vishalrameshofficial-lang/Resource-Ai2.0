@@ -32,6 +32,8 @@ export class ConversationSession {
     this.endedAt = null;
     this.requestId = null;
     this.status = 'IN_PROGRESS';
+    this.isRealTelephony = Boolean(options.isRealTelephony);
+    this.isSimulator = Boolean(options.isSimulator);
 
     this.aiProvider = getAIProvider();
     this.ttsProvider = getTTSProvider();
@@ -167,18 +169,43 @@ export const conversationRegistry = {
   getAllActiveSessions() {
     // Unique sessions
     const unique = new Set(activeSessions.values());
-    return Array.from(unique).map(s => ({
-      id: s.id,
-      callSid: s.callSid,
-      streamSid: s.streamSid,
-      callerPhone: s.callerPhone,
-      language: s.language,
-      stage: s.stage,
-      status: s.status,
-      startedAt: s.startedAt,
-      durationSec: Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000),
-      requestId: s.requestId,
-      lastUtterance: s.transcript[s.transcript.length - 1]?.text || ''
-    }));
+    const now = Date.now();
+
+    return Array.from(unique)
+      .filter(s => {
+        // Must be in-progress real telephony session
+        if (s.status !== 'IN_PROGRESS') return false;
+        if (s.isSimulator) return false;
+        if (!s.isRealTelephony) return false;
+
+        // Reject test callers / synthetic IDs
+        if (s.callSid && (s.callSid.startsWith('test_') || s.callSid.startsWith('exo_test_'))) return false;
+        if (['+919876543210', '+919944332211', '+919988776655'].includes(s.callerPhone)) return false;
+
+        // Auto-clean stale sessions older than 20 minutes (1200 seconds)
+        const ageSec = Math.floor((now - new Date(s.startedAt).getTime()) / 1000);
+        if (ageSec > 1200) {
+          activeSessions.delete(s.id);
+          activeSessions.delete(s.callSid);
+          if (s.streamSid) activeSessions.delete(s.streamSid);
+          return false;
+        }
+
+        return true;
+      })
+      .map(s => ({
+        id: s.id,
+        callSid: s.callSid,
+        streamSid: s.streamSid,
+        callerPhone: s.callerPhone,
+        language: s.language,
+        stage: s.stage,
+        status: s.status,
+        startedAt: s.startedAt,
+        durationSec: Math.floor((now - new Date(s.startedAt).getTime()) / 1000),
+        requestId: s.requestId,
+        lastUtterance: s.transcript[s.transcript.length - 1]?.text || ''
+      }));
   }
 };
+

@@ -338,7 +338,6 @@ function AppContent() {
             <div className="max-w-7xl mx-auto">
               <LiveCallsView
                 activeCalls={activeCalls}
-                onOpenSimulator={() => setActiveTab('simulator')}
               />
             </div>
           )}

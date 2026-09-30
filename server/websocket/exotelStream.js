@@ -207,6 +207,8 @@ export function handleExotelStream(ws, req) {
 
     // Remove from in-flight memory registry
     conversationRegistry.removeSession(currentSession.callSid);
+    conversationRegistry.removeSession(currentSession.id);
+    if (currentSession.streamSid) conversationRegistry.removeSession(currentSession.streamSid);
 
     // Broadcast call completion event to dashboard
     eventBus.broadcast('CALL_ENDED', {
@@ -336,13 +338,15 @@ export function handleExotelStream(ws, req) {
 
           console.log(`[ExotelStream] START call_sid=${callSid}, stream_sid=${streamSid}, from=${callerPhone || 'Unknown'}, format=${encoding}, rate=${sampleRate}Hz`);
 
-          // Create or retrieve session in registry
+          // Create or retrieve session in registry (strictly marked as real telephony)
           currentSession = conversationRegistry.createSession({
             callSid,
             streamSid,
             callerPhone,
             exotelNumber,
-            language: message.custom_parameters?.language || 'English'
+            language: message.custom_parameters?.language || 'English',
+            isRealTelephony: true,
+            isSimulator: false
           });
 
           // Broadcast active call to dashboard
@@ -446,7 +450,9 @@ export function handleExotelStream(ws, req) {
               callSid: `test_call_${Date.now()}`,
               streamSid: message.stream_sid || `test_str_${Date.now()}`,
               callerPhone: message.from || null,
-              language: message.language || 'English'
+              language: message.language || 'English',
+              isRealTelephony: false,
+              isSimulator: true
             });
             streamSid = currentSession.streamSid;
             callSid = currentSession.callSid;

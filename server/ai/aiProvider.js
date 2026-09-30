@@ -267,14 +267,6 @@ export class OllamaProvider extends AIProvider {
         reply: strings.confirmation(data.location, data.affectedPeople || 1, resStr),
         stage: CONVERSATION_STAGES.CONFIRMATION
       };
-      const strings = MULTILINGUAL_STRINGS[currentLang] || MULTILINGUAL_STRINGS.English;
-      const resStr = reqs.length > 0
-        ? reqs.map(r => `${r.quantity ? r.quantity + ' ' : ''}${r.item}`).join(', ')
-        : 'emergency relief';
-      return {
-        reply: strings.confirmation(data.location, data.affectedPeople || 1, resStr),
-        stage: CONVERSATION_STAGES.CONFIRMATION
-      };
     }
 
     const messages = [
@@ -780,55 +772,15 @@ export class MockAIProvider extends AIProvider {
       nextStage = CONVERSATION_STAGES.RESOURCES;
       reply = strings.askResources;
     } else {
-      nextStage = CONVERSATION_STAGES.URGENCY;
-      reply = strings.askUrgency;
+      nextStage = CONVERSATION_STAGES.CONFIRMATION;
+      const resStr = reqs.length > 0
+        ? reqs.map(r => `${r.quantity ? r.quantity + ' ' : ''}${r.item}`).join(', ')
+        : 'emergency relief';
+      reply = strings.confirmation(data.location, data.affectedPeople || 1, resStr);
     }
-  } else if(stage === CONVERSATION_STAGES.EMERGENCY) {
-  if (!data.location) {
-    nextStage = CONVERSATION_STAGES.LOCATION;
-    reply = strings.askLocation;
-  } else if (!data.affectedPeople) {
-    nextStage = CONVERSATION_STAGES.PEOPLE;
-    reply = strings.askPeople;
-  } else {
-    nextStage = CONVERSATION_STAGES.RESOURCES;
-    reply = strings.askResources;
-  }
-} else if (stage === CONVERSATION_STAGES.LOCATION) {
-  const reqs = data.requirements || [];
-  if (!data.affectedPeople || data.affectedPeople <= 1) {
-    nextStage = CONVERSATION_STAGES.PEOPLE;
-    reply = strings.askPeople;
-  } else if (reqs.length === 0) {
-    nextStage = CONVERSATION_STAGES.RESOURCES;
-    reply = strings.askResources;
-  } else {
-    nextStage = CONVERSATION_STAGES.URGENCY;
-    reply = strings.askUrgency;
-  }
-} else if (stage === CONVERSATION_STAGES.PEOPLE) {
-  const reqs = data.requirements || [];
-  if (reqs.length === 0) {
-    nextStage = CONVERSATION_STAGES.RESOURCES;
-    reply = strings.askResources;
-  } else {
-    nextStage = CONVERSATION_STAGES.URGENCY;
-    reply = strings.askUrgency;
-  }
-} else if (stage === CONVERSATION_STAGES.RESOURCES) {
-  nextStage = CONVERSATION_STAGES.URGENCY;
-  reply = strings.askUrgency;
-} else if (stage === CONVERSATION_STAGES.URGENCY) {
-  nextStage = CONVERSATION_STAGES.CONFIRMATION;
-  const reqs = data.requirements || [];
-  const resStr = reqs.length > 0
-    ? reqs.map(r => `${r.quantity ? r.quantity + ' ' : ''}${r.item}`).join(', ')
-    : 'emergency relief';
-  reply = strings.confirmation(data.location, data.affectedPeople || 1, resStr);
-}
 
-sessionState.stage = nextStage;
-return { reply, stage: nextStage };
+    sessionState.stage = nextStage;
+    return { reply, stage: nextStage };
   }
 
 detectLanguage(text) {
