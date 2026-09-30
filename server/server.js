@@ -31,6 +31,24 @@ server.listen(PORT, () => {
   console.log(`Real-Time SSE Events: http://localhost:${PORT}/api/events`);
   console.log(`Database:             native node:sqlite`);
   console.log(`==================================================`);
+
+  // Ensure local Whisper daemon is active on port 5056
+  if ((process.env.STT_PROVIDER || 'local') === 'local') {
+    fetch('http://127.0.0.1:5056/health')
+      .then(r => r.ok && console.log('[Whisper] Faster-Whisper daemon is connected on port 5056'))
+      .catch(() => {
+        console.log('[Whisper] Starting local Whisper daemon on port 5056...');
+        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const scriptPath = path.resolve(process.cwd(), 'server', 'ai', 'whisper_service.py');
+        import('node:child_process').then(({ spawn }) => {
+          const child = spawn(pythonCmd, [scriptPath, '--server', '--port', '5056'], {
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+        });
+      });
+  }
 });
 
 export default server;

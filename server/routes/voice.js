@@ -18,9 +18,7 @@ router.post('/test', async (req, res, next) => {
     if (!session) {
       session = conversationRegistry.createSession({
         callerPhone,
-        language,
-        isRealTelephony: false,
-        isSimulator: true
+        language
       });
       isNew = true;
     }

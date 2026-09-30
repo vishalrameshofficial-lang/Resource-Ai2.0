@@ -9,10 +9,7 @@ const __dirname = path.dirname(__filename);
 
 // Resolved DB file path
 const isVercel = !!process.env.VERCEL;
-const isTestEnv = process.env.NODE_ENV === 'test';
-const defaultDbPath = isTestEnv 
-  ? './server/data/test.db' 
-  : (isVercel ? '/tmp/resourceai.db' : './server/data/resourceai.db');
+const defaultDbPath = isVercel ? '/tmp/resourceai.db' : './server/data/resourceai.db';
 const rawDbPath = process.env.DATABASE_PATH || defaultDbPath;
 const dbPath = path.isAbsolute(rawDbPath) 
   ? rawDbPath 

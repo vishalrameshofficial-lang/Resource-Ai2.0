@@ -29,12 +29,47 @@ export function handleExotelStream(ws, req) {
   let isProcessingUtterance = false;
   let echoMuteUntil = 0; // Timestamp to suppress echo while AI is speaking
 
-  const VAD_RMS_THRESHOLD = parseInt(process.env.VAD_RMS_THRESHOLD || '350', 10);
+  const VAD_RMS_THRESHOLD = parseInt(process.env.VAD_RMS_THRESHOLD || '250', 10);
   const SILENCE_FRAMES_TRIGGER = Math.floor(parseInt(process.env.VAD_SILENCE_MS || '350', 10) / 20); // ~350ms of silence for snappy turn-taking
   const MIN_SPEECH_FRAMES = 4; // ~80ms minimum speech
   const MAX_SPEECH_FRAMES = 350; // ~7 seconds max continuous speech frame limit
 
   const stt = getSTTProvider();
+
+  // Silence Timer to prevent Exotel 10-12s silence timeout disconnect
+  let silenceTimer = null;
+
+  function clearSilenceTimer() {
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
+  }
+
+  function resetSilenceTimer() {
+    clearSilenceTimer();
+    if (!currentSession || currentSession._isFinalized || ws.readyState !== ws.OPEN) return;
+
+    // Reprompt at 5.5s so Exotel's default 10-12s silence timeout never triggers
+    silenceTimer = setTimeout(async () => {
+      if (!currentSession || currentSession._isFinalized || ws.readyState !== ws.OPEN) return;
+      if (isSpeaking || isProcessingUtterance) return;
+
+      console.log(`[ExotelStream] Silence check-in (>5.5s), prompting caller to keep Exotel call alive`);
+      try {
+        const lang = currentSession.language || 'English';
+        const reprompt = lang === 'Tamil'
+          ? "நான் கேட்கிறேன். உங்கள் அவசர நிலை மற்றும் இருப்பிடத்தைக் கூறவும்."
+          : (lang === 'Hindi'
+             ? "मैं सुन रहा हूँ। कृपया अपनी आपातकालीन स्थिति और स्थान बताएं।"
+             : "Hello, I am listening. Please state your location and the emergency help you need.");
+        const promptAudio = await currentSession.ttsProvider.synthesize(reprompt, { sampleRate });
+        sendAudioInChunks(promptAudio, streamSid, isMuLaw);
+      } catch (err) {
+        console.warn('[ExotelStream] Silence check-in synthesis error:', err.message);
+      }
+    }, 5500);
+  }
 
   // Helper to send a JSON event object to Exotel safely
   function sendEvent(eventObj) {
@@ -52,6 +87,7 @@ export function handleExotelStream(ws, req) {
     if (!audioBuffer || !sid || ws.readyState !== ws.OPEN) return;
 
     try {
+      clearSilenceTimer();
       const payloadBuffer = asMuLaw ? pcm16ToMulaw(audioBuffer) : audioBuffer;
       // Frame size: 160 bytes for 8kHz mu-law (20ms), 320 bytes for 8kHz 16-bit PCM (20ms)
       const FRAME_SIZE = asMuLaw ? 160 : 320;
@@ -72,6 +108,11 @@ export function handleExotelStream(ws, req) {
       echoMuteUntil = Date.now() + durationMs + 100;
       console.log(`[ExotelStream:Outbound] Dispatched ${payloadBuffer.length} bytes audio (${Math.round(durationMs)}ms) in ${FRAME_SIZE}-byte frames (echo mute until +100ms)`);
 
+      // Schedule silence timer to begin right after audio finishes playing
+      setTimeout(() => {
+        resetSilenceTimer();
+      }, durationMs + 100);
+
       // Mark event for Exotel playback synchronization
       sendEvent({
         event: 'mark',
@@ -88,6 +129,7 @@ export function handleExotelStream(ws, req) {
     if (accumulatedPcmChunks.length === 0 || isProcessingUtterance || !currentSession) return;
     isProcessingUtterance = true;
     isSpeaking = false;
+    clearSilenceTimer();
 
     const fullPcm = Buffer.concat(accumulatedPcmChunks);
     accumulatedPcmChunks = [];
@@ -125,7 +167,23 @@ export function handleExotelStream(ws, req) {
 
         // If call reached submission stage, finalize and persist
         if (result.status === 'COMPLETED') {
+          clearSilenceTimer();
           await finalizeCall('conversation_completed');
+        }
+      } else {
+        // Voice frames were detected, but STT transcription was unclear
+        console.log(`[ExotelStream:STT] Unclear speech detected, sending clarify prompt`);
+        const lang = currentSession.language || 'English';
+        const clarify = lang === 'Tamil'
+          ? "தயவுசெய்து உங்கள் அவசர நிலை மற்றும் இடத்தை மீண்டும் கூறவும்."
+          : (lang === 'Hindi'
+             ? "कृपया अपनी समस्या और स्थान दोबारा बताएं।"
+             : "I could not hear you clearly. Please state your emergency and location.");
+        try {
+          const clarifyAudio = await currentSession.ttsProvider.synthesize(clarify, { sampleRate });
+          sendAudioInChunks(clarifyAudio, streamSid, isMuLaw);
+        } catch (err) {
+          console.warn('[ExotelStream] Clarify audio error:', err.message);
         }
       }
     } catch (err) {
@@ -137,6 +195,7 @@ export function handleExotelStream(ws, req) {
 
   // Finalize call: safely persist original recording, transcript, and session to SQLite, then run async AI classification
   async function finalizeCall(reason = 'stop_event') {
+    clearSilenceTimer();
     if (!currentSession || currentSession._isFinalized) return;
     currentSession._isFinalized = true;
 
@@ -207,8 +266,6 @@ export function handleExotelStream(ws, req) {
 
     // Remove from in-flight memory registry
     conversationRegistry.removeSession(currentSession.callSid);
-    conversationRegistry.removeSession(currentSession.id);
-    if (currentSession.streamSid) conversationRegistry.removeSession(currentSession.streamSid);
 
     // Broadcast call completion event to dashboard
     eventBus.broadcast('CALL_ENDED', {
@@ -338,15 +395,13 @@ export function handleExotelStream(ws, req) {
 
           console.log(`[ExotelStream] START call_sid=${callSid}, stream_sid=${streamSid}, from=${callerPhone || 'Unknown'}, format=${encoding}, rate=${sampleRate}Hz`);
 
-          // Create or retrieve session in registry (strictly marked as real telephony)
+          // Create or retrieve session in registry
           currentSession = conversationRegistry.createSession({
             callSid,
             streamSid,
             callerPhone,
             exotelNumber,
-            language: message.custom_parameters?.language || 'English',
-            isRealTelephony: true,
-            isSimulator: false
+            language: message.custom_parameters?.language || 'English'
           });
 
           // Broadcast active call to dashboard
@@ -404,6 +459,7 @@ export function handleExotelStream(ws, req) {
             const rms = calculateRms(pcmChunk);
 
             if (rms > VAD_RMS_THRESHOLD) {
+              clearSilenceTimer();
               isSpeaking = true;
               speechFramesCount++;
               silenceFramesCount = 0;
@@ -450,9 +506,7 @@ export function handleExotelStream(ws, req) {
               callSid: `test_call_${Date.now()}`,
               streamSid: message.stream_sid || `test_str_${Date.now()}`,
               callerPhone: message.from || null,
-              language: message.language || 'English',
-              isRealTelephony: false,
-              isSimulator: true
+              language: message.language || 'English'
             });
             streamSid = currentSession.streamSid;
             callSid = currentSession.callSid;
@@ -510,6 +564,7 @@ export function handleExotelStream(ws, req) {
   });
 
   ws.on('close', async () => {
+    clearSilenceTimer();
     console.log(`[ExotelStream] WebSocket closed for call_sid=${callSid}`);
     if (currentSession && !currentSession._isFinalized) {
       await finalizeCall('client_disconnect');

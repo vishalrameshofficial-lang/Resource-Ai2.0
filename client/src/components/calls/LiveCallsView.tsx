@@ -6,6 +6,7 @@ import { DepartmentDashboardView } from './DepartmentDashboardView';
 
 interface LiveCallsViewProps {
   activeCalls: ActiveLiveCall[];
+  onOpenSimulator?: () => void;
 }
 
 const STAGES = [

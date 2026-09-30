@@ -6,12 +6,7 @@ import { eventBus } from '../websocket/eventBus.js';
 export class RequestService {
   getAllRequests(filters = {}) {
     const db = getDatabase();
-    let query = `
-      SELECT * FROM emergency_requests 
-      WHERE (id NOT LIKE 'req-sample-%' 
-             AND request_id NOT LIKE 'REQ-2026-890%' 
-             AND caller_phone NOT IN ('+919876543210', '+919944332211', '+919988776655'))
-    `;
+    let query = 'SELECT * FROM emergency_requests WHERE 1=1';
     const params = [];
 
     if (filters.status && filters.status !== 'ALL') {
@@ -274,20 +269,18 @@ export class RequestService {
 
   getStats() {
     const db = getDatabase();
-    const REAL_FILTER = "WHERE id NOT LIKE 'req-sample-%' AND request_id NOT LIKE 'REQ-2026-890%' AND caller_phone NOT IN ('+919876543210', '+919944332211', '+919988776655')";
 
-    const total = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER}`).get()?.count || 0;
-    const newReqs = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER} AND status = 'NEW'`).get()?.count || 0;
-    const highUrgency = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER} AND urgency IN ('HIGH', 'CRITICAL')`).get()?.count || 0;
-    const activeEmergencies = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER} AND status NOT IN ('DELIVERED', 'REJECTED', 'CANCELLED')`).get()?.count || 0;
-    const govtPending = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER} AND status IN ('VERIFIED', 'FORWARDED_TO_GOVERNMENT')`).get()?.count || 0;
-    const delivered = db.prepare(`SELECT COUNT(*) as count FROM emergency_requests ${REAL_FILTER} AND status = 'DELIVERED'`).get()?.count || 0;
+    const total = db.prepare('SELECT COUNT(*) as count FROM emergency_requests').get()?.count || 0;
+    const newReqs = db.prepare("SELECT COUNT(*) as count FROM emergency_requests WHERE status = 'NEW'").get()?.count || 0;
+    const highUrgency = db.prepare("SELECT COUNT(*) as count FROM emergency_requests WHERE urgency IN ('HIGH', 'CRITICAL')").get()?.count || 0;
+    const activeEmergencies = db.prepare("SELECT COUNT(*) as count FROM emergency_requests WHERE status NOT IN ('DELIVERED', 'REJECTED', 'CANCELLED')").get()?.count || 0;
+    const govtPending = db.prepare("SELECT COUNT(*) as count FROM emergency_requests WHERE status IN ('VERIFIED', 'FORWARDED_TO_GOVERNMENT')").get()?.count || 0;
+    const delivered = db.prepare("SELECT COUNT(*) as count FROM emergency_requests WHERE status = 'DELIVERED'").get()?.count || 0;
 
     // Requests by category
     const byCategory = db.prepare(`
       SELECT emergency_category as name, COUNT(*) as count 
       FROM emergency_requests 
-      ${REAL_FILTER}
       GROUP BY emergency_category
     `).all();
 
@@ -295,7 +288,6 @@ export class RequestService {
     const byLanguage = db.prepare(`
       SELECT caller_language as name, COUNT(*) as count 
       FROM emergency_requests 
-      ${REAL_FILTER}
       GROUP BY caller_language
     `).all();
 
@@ -303,7 +295,6 @@ export class RequestService {
     const byStatus = db.prepare(`
       SELECT status as name, COUNT(*) as count 
       FROM emergency_requests 
-      ${REAL_FILTER}
       GROUP BY status
     `).all();
 
@@ -311,12 +302,11 @@ export class RequestService {
     const byUrgency = db.prepare(`
       SELECT urgency as name, COUNT(*) as count 
       FROM emergency_requests 
-      ${REAL_FILTER}
       GROUP BY urgency
     `).all();
 
     // Total affected people
-    const peopleSum = db.prepare(`SELECT SUM(affected_people_count) as total FROM emergency_requests ${REAL_FILTER}`).get()?.total || 0;
+    const peopleSum = db.prepare('SELECT SUM(affected_people_count) as total FROM emergency_requests').get()?.total || 0;
 
     return {
       total,

@@ -850,13 +850,16 @@ extractEntities(sessionState, text) {
     data.requirements = reqs;
   }
 
-  // 4. Detect Location if specific landmark/place mentioned
+  // 4. Detect Location if in LOCATION stage or specific landmark/place mentioned
+  const isLocationStage = sessionState.stage === CONVERSATION_STAGES.LOCATION;
   const isGenericOnly = /^(in\s+)?our\s+(area|village|place|colony|locality)$/i.test(raw.trim()) ||
     /there is flooding in our area/i.test(raw);
-  if (!isGenericOnly && /(station|nagar|colony|road|street|ward|bridge|temple|sector|bypass|tirunelveli|kullu|digha|kochi|delhi|mumbai|chennai|कुरुक्कुत्तुरै|திருநெல்வேலி|near\s+[a-z0-9]+)/i.test(raw)) {
-    if (!data.location || data.location === 'Area Reported') {
+  const hasLocationKeyword = /(station|nagar|colony|road|street|ward|bridge|temple|sector|bypass|tirunelveli|kullu|digha|kochi|delhi|mumbai|chennai|coimbatore|gandhipuram|puram|கொருக்குத்துரை|திருநெல்வேலி|near\s+[a-z0-9]+)/i.test(raw);
+
+  if ((isLocationStage && !isGenericOnly && text.trim().length >= 3) || (!isGenericOnly && hasLocationKeyword)) {
+    if (!data.location || data.location === 'Area Reported' || isLocationStage) {
       const cleanLoc = text.replace(/^(there is|we are|it is|near|at|in)\s+/i, '').trim();
-      data.location = cleanLoc.length > 3 ? cleanLoc : 'Near Landmark / Railway Station';
+      data.location = cleanLoc.length >= 2 ? cleanLoc : text.trim();
     }
   }
 

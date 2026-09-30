@@ -29,14 +29,7 @@ function parseCallRow(r) {
 export class CallService {
   getAllCalls(filters = {}) {
     const db = getDatabase();
-    // Exclude any synthetic test/sample calls
-    let query = `
-      SELECT * FROM call_sessions 
-      WHERE (id NOT LIKE 'test_%' AND id NOT LIKE 'call-sample-%' 
-             AND call_sid NOT LIKE 'test_%' AND call_sid NOT LIKE 'exo_test_%' 
-             AND call_sid NOT LIKE 'exo_an_%' AND call_sid NOT LIKE 'exo_patch_%'
-             AND caller_phone NOT IN ('+919876543210', '+919944332211', '+919988776655'))
-    `;
+    let query = 'SELECT * FROM call_sessions WHERE 1=1';
     const params = [];
 
     if (filters.department && filters.department !== 'ALL') {
