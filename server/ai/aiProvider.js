@@ -208,7 +208,7 @@ export class OllamaProvider extends AIProvider {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.timeoutMs = options.timeoutMs || 2500;
     this.turnTimeoutMs = options.turnTimeoutMs || (options.timeoutMs !== undefined ? options.timeoutMs : parseInt(process.env.AI_TURN_TIMEOUT_MS || '450', 10));
-    this.batchTimeoutMs = options.batchTimeoutMs || Math.max(this.timeoutMs, 10000);
+    this.batchTimeoutMs = options.batchTimeoutMs || Math.max(this.timeoutMs, 25000);
   }
 
   async processUtterance(sessionState, callerUtterance) {
