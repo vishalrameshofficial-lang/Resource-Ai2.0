@@ -38,9 +38,20 @@ router.post('/webhook', (req, res) => {
   if (callSid && recordingUrl) {
     try {
       const db = getDatabase();
-      db.prepare('UPDATE call_sessions SET recording_url = ? WHERE call_sid = ?').run(recordingUrl, callSid);
-      console.log(`[ExotelWebhook] Attached carrier recording ${recordingUrl} to call ${callSid}`);
-      eventBus.broadcast('CALL_UPDATED', { callSid, recordingUrl });
+      const existing = db.prepare('SELECT id, recording_url, metadata FROM call_sessions WHERE call_sid = ?').get(callSid);
+      if (existing) {
+        let meta = {};
+        try { meta = JSON.parse(existing.metadata || '{}'); } catch {}
+        meta.exotel_recording_url = recordingUrl;
+        const effectiveRecordingUrl = existing.recording_url || recordingUrl;
+        db.prepare('UPDATE call_sessions SET recording_url = ?, metadata = ? WHERE call_sid = ?').run(
+          effectiveRecordingUrl,
+          JSON.stringify(meta),
+          callSid
+        );
+        console.log(`[ExotelWebhook] Attached carrier recording ${recordingUrl} to call ${callSid}`);
+        eventBus.broadcast('CALL_UPDATED', { callSid, recordingUrl: effectiveRecordingUrl });
+      }
     } catch (err) {
       console.warn('[ExotelWebhook] Warning storing carrier recording:', err.message);
     }

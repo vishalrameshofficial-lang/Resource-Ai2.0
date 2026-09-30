@@ -20,6 +20,8 @@ export function handleExotelStream(ws, req) {
   // Complete call audio preservation for authoritative recording
   let allCallerAudioChunks = [];
   let exotelRecordingUrl = null;
+  let isRecordingActive = false;
+  let recordingStartedAt = null;
 
   // Audio buffering and Voice Activity Detection (VAD) state
   let accumulatedPcmChunks = [];
@@ -289,6 +291,39 @@ export function handleExotelStream(ws, req) {
 
   async function runPostCallAnalysis(session, telephonySourceIp, reason, durationSec) {
     try {
+      // Step A0: Transcribe original voice recording to ensure full caller query is captured
+      const recordingsDir = path.resolve(process.cwd(), 'server', 'data', 'recordings');
+      const wavCandidates = [
+        path.join(recordingsDir, `${session.id}.wav`),
+        path.join(recordingsDir, `${session.callSid}.wav`)
+      ];
+      for (const cand of wavCandidates) {
+        if (fs.existsSync(cand)) {
+          try {
+            const wavData = fs.readFileSync(cand);
+            if (wavData.length > 44) {
+              console.log(`[ExotelStream:PostCall] Transcribing original caller recording (${wavData.length} bytes)...`);
+              const audioTranscript = await stt.transcribe(wavData, session.language);
+              if (audioTranscript && audioTranscript.trim()) {
+                console.log(`[ExotelStream:PostCall] Transcribed audio: "${audioTranscript}"`);
+                const hasCallerTurn = session.transcript.some(t => t.role === 'caller' && t.text && t.text.trim());
+                if (!hasCallerTurn || !session.query) {
+                  session.transcript.push({
+                    role: 'caller',
+                    text: audioTranscript.trim(),
+                    timestamp: new Date().toISOString()
+                  });
+                  session.query = audioTranscript.trim();
+                }
+              }
+            }
+          } catch (sttErr) {
+            console.warn('[ExotelStream:PostCall] Recording transcription notice:', sttErr.message);
+          }
+          break;
+        }
+      }
+
       // Step A: Conversation analysis
       try {
         const analysis = await session.aiProvider.analyzeConversation(session);
@@ -302,15 +337,15 @@ export function handleExotelStream(ws, req) {
 
       // Step B: AI Query Understanding & Department Classification from existing department taxonomy
       const classification = await session.aiProvider.classifyCallQuery(session);
-      session.query = classification.query;
-      session.summary = classification.summary;
-      session.department = classification.department;
-      session.required_service = classification.required_service;
-      session.required_resources = classification.required_resources;
-      session.priority = classification.priority;
-      session.location = classification.location;
-      session.affected_people = classification.affected_people;
-      session.classification_confidence = classification.confidence;
+      session.query = classification.query || session.query || 'Emergency query recorded';
+      session.summary = classification.summary || session.summary || 'Emergency assistance query';
+      session.department = classification.department || 'Other / Unclassified';
+      session.required_service = classification.required_service || '';
+      session.required_resources = classification.required_resources || [];
+      session.priority = classification.priority || 'Medium';
+      session.location = classification.location || 'Not mentioned';
+      session.affected_people = classification.affected_people || 'Not mentioned';
+      session.classification_confidence = classification.confidence || 0.85;
       session.classification_status = 'completed';
 
       session.metadata = {
@@ -319,7 +354,8 @@ export function handleExotelStream(ws, req) {
         classification,
         telephony_source_ip: telephonySourceIp,
         endedReason: reason,
-        durationSec
+        durationSec,
+        recording_started_at: session.recordingStartedAt || session.startedAt
       };
 
       // Persist updated classification to SQLite
@@ -357,6 +393,7 @@ export function handleExotelStream(ws, req) {
       }
     }
   }
+
 
   ws.on('message', async (data) => {
     try {
@@ -414,24 +451,52 @@ export function handleExotelStream(ws, req) {
             stage: currentSession.stage
           });
 
-          // Deliver initial greeting
-          const greetingText = currentSession.getGreeting();
+          // Sequence Rule 1 & 2: Do NOT record immediately. Play exact voice message:
+          // “Hi, I’m Resource AI. Tell me your query.”
+          isRecordingActive = false;
+          recordingStartedAt = null;
+          allCallerAudioChunks = [];
+
+          const greetingText = "Hi, I’m Resource AI. Tell me your query.";
+          currentSession.transcript.push({
+            role: 'assistant',
+            text: greetingText,
+            timestamp: new Date().toISOString()
+          });
+
           try {
             const greetingAudio = await currentSession.ttsProvider.synthesize(greetingText, {
               sampleRate
             });
 
+            const durationMs = Math.ceil(greetingAudio.length / (isMuLaw ? 8 : 16));
+            echoMuteUntil = Date.now() + durationMs + 100;
+            console.log(`[ExotelStream:Greeting] Delivering initial voice message: "${greetingText}" (~${Math.round(durationMs)}ms)`);
+
             sendAudioInChunks(greetingAudio, streamSid, isMuLaw);
             sendEvent({
               event: 'mark',
               stream_sid: streamSid,
-              mark: { name: 'greeting_dispatched' }
+              mark: { name: 'greeting_complete' }
             });
+
+            // Sequence Rule 3 & 4: Caller must hear complete greeting before recording begins.
+            // Immediately after greeting finishes, automatically start recording caller conversation.
+            setTimeout(() => {
+              if (!isRecordingActive && currentSession && !currentSession._isFinalized) {
+                isRecordingActive = true;
+                recordingStartedAt = new Date().toISOString();
+                currentSession.recordingStartedAt = recordingStartedAt;
+                console.log(`[ExotelStream:Recording] >>> GREETING FINISHED. AUTOMATIC RECORDING STARTED FOR CALL ${callSid} <<<`);
+              }
+            }, durationMs + 100);
           } catch (greetErr) {
             console.warn('[ExotelStream] Failed to synthesize initial greeting audio:', greetErr.message);
+            isRecordingActive = true;
           }
           break;
         }
+
 
         case 'media': {
           if (!currentSession) break;
@@ -444,7 +509,13 @@ export function handleExotelStream(ws, req) {
             if (rawChunk.length === 0) break;
 
             const pcmChunk = isMuLaw ? mulawToPcm16(rawChunk) : rawChunk;
-            // Accumulate continuous caller audio for authoritative recording preservation without gaps
+
+            // Sequence Rule 1 & 3: Do NOT record while greeting is playing to caller
+            if (!isRecordingActive) {
+              break;
+            }
+
+            // Sequence Rule 4 & 5: Greeting finished. Capture caller's complete voice conversation until call ends!
             allCallerAudioChunks.push(pcmChunk);
 
             // Suppress inbound speech processing while AI voice is being delivered to avoid self-echo loop
@@ -552,6 +623,15 @@ export function handleExotelStream(ws, req) {
         case 'mark': {
           // Acknowledged mark event from Exotel indicating playback has finished on caller handset
           echoMuteUntil = Date.now();
+          const markName = message.mark?.name;
+          if (markName === 'greeting_complete' || !isRecordingActive) {
+            isRecordingActive = true;
+            if (!recordingStartedAt) {
+              recordingStartedAt = new Date().toISOString();
+              if (currentSession) currentSession.recordingStartedAt = recordingStartedAt;
+            }
+            console.log(`[ExotelStream:Recording] >>> GREETING CONFIRMED PLAYED ON HANDSET. RECORDING STARTED FOR CALL ${callSid} <<<`);
+          }
           break;
         }
 

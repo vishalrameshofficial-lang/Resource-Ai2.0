@@ -11,7 +11,7 @@ export const CONVERSATION_STAGES = {
 
 export const MULTILINGUAL_STRINGS = {
   English: {
-    greeting: "ResourceAI emergency assistance. What is the emergency?",
+    greeting: "Hi, I’m Resource AI. Tell me your query.",
     askEmergency: "What is the emergency?",
     askLocation: "Where is the emergency happening?",
     askPeople: "How many people are affected?",

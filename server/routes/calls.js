@@ -62,12 +62,18 @@ router.get('/:id/recording', optionalAuthenticate, (req, res, next) => {
     }
 
     const recordingsDir = path.resolve(process.cwd(), 'server', 'data', 'recordings');
-    const filename = `${call.call_sid || call.id}.wav`;
-    const filepath = path.join(recordingsDir, filename);
+    const candidates = [
+      path.join(recordingsDir, `${call.id}.wav`),
+      path.join(recordingsDir, `${call.call_sid}.wav`),
+      path.join(recordingsDir, `${call.call_sid || call.id}.wav`),
+      path.join(recordingsDir, `${req.params.id}.wav`)
+    ];
 
-    if (fs.existsSync(filepath)) {
-      res.setHeader('Content-Type', 'audio/wav');
-      return fs.createReadStream(filepath).pipe(res);
+    for (const filepath of candidates) {
+      if (fs.existsSync(filepath)) {
+        res.setHeader('Content-Type', 'audio/wav');
+        return fs.createReadStream(filepath).pipe(res);
+      }
     }
 
     if (call.recording_url && call.recording_url.startsWith('http')) {

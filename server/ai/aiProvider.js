@@ -1182,22 +1182,22 @@ export function sanitizeClassificationResult(result, input = {}) {
     'Other / Unclassified'
   ];
 
-  let dept = (result?.department || '').trim();
+  let dept = String(result?.department || '').trim();
   if (!validDepartments.includes(dept)) {
     const lower = dept.toLowerCase();
     const matched = validDepartments.find(d => d.toLowerCase().includes(lower) || lower.includes(d.toLowerCase()));
     dept = matched || 'Other / Unclassified';
   }
 
-  const query = (result?.query || input.callerQuery || input.transcriptText || 'Not available').trim();
-  const summary = (result?.summary || query).trim();
-  const required_service = (result?.required_service || 'General Public Assistance').trim();
+  const query = String(result?.query || input.callerQuery || input.transcriptText || 'Not available').trim();
+  const summary = String(result?.summary || query).trim();
+  const required_service = String(result?.required_service || 'General Public Assistance').trim();
   const required_resources = Array.isArray(result?.required_resources)
     ? result.required_resources.filter(Boolean).map(String)
     : [];
 
   const validPriorities = ['Critical', 'High', 'Medium', 'Low', 'Unknown'];
-  let priority = (result?.priority || 'Unknown').trim();
+  let priority = String(result?.priority || 'Unknown').trim();
   if (!validPriorities.includes(priority)) {
     const pLower = priority.toLowerCase();
     if (pLower.includes('crit')) priority = 'Critical';
@@ -1207,12 +1207,12 @@ export function sanitizeClassificationResult(result, input = {}) {
     else priority = 'Unknown';
   }
 
-  let location = (result?.location || 'Not mentioned').trim();
+  let location = String(result?.location || 'Not mentioned').trim();
   if (!location || /^(not\s*mentioned|unknown|none|n\/a|unspecified)$/i.test(location)) {
     location = 'Not mentioned';
   }
 
-  let affected_people = (result?.affected_people || 'Not mentioned').trim();
+  let affected_people = String(result?.affected_people || 'Not mentioned').trim();
   if (!affected_people || /^(not\s*mentioned|unknown|none|n\/a|unspecified)$/i.test(affected_people)) {
     affected_people = 'Not mentioned';
   }

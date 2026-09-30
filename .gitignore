@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 package-lock.json.bak
+__pycache__/
+*.pyc
+
 
 # Production build outputs
 dist/
@@ -24,6 +27,10 @@ pnpm-debug.log*
 *.db-shm
 *.db-wal
 *.db-journal
+
+# Local voice recordings
+server/data/recordings/*.wav
+
 
 # Editor & OS files
 .vscode/

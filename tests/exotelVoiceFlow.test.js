@@ -72,7 +72,7 @@ test('Call Session Creation - Initial AI Greeting and Registry', async () => {
   // Initial greeting retrieval
   const greeting = session.getGreeting();
   assert.ok(greeting.toLowerCase().includes('resourceai') || greeting.toLowerCase().includes('resource ai'));
-  assert.ok(greeting.toLowerCase().includes('emergency'));
+  assert.ok(greeting.toLowerCase().includes('query') || greeting.toLowerCase().includes('emergency'));
   assert.equal(session.transcript.length, 1);
   assert.equal(session.transcript[0].role, 'assistant');
 
